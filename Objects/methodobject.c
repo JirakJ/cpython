@@ -6,6 +6,8 @@
 
 /* Free list for method objects to safe malloc/free overhead
  * The m_self element is used to chain the objects.
+ *
+ * The free list is not used for PyCMethodObject.
  */
 static PyCFunctionObject *free_list = NULL;
 static int numfree = 0;
@@ -22,20 +24,57 @@ PyCFunction_New(PyMethodDef *ml, PyObject *self)
     return PyCFunction_NewEx(ml, self, NULL);
 }
 
+/* undefine macro trampoline to PyCMethod_New */
+#undef PyCFunction_NewEx
+
 PyObject *
 PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
 {
-    PyCFunctionObject *op;
-    op = free_list;
-    if (op != NULL) {
-        free_list = (PyCFunctionObject *)(op->m_self);
-        (void)PyObject_INIT(op, &PyCFunction_Type);
-        numfree--;
-    }
-    else {
-        op = PyObject_GC_New(PyCFunctionObject, &PyCFunction_Type);
+    return PyCMethod_New(ml, self, module, NULL);
+}
+
+PyObject *
+PyCMethod_New(PyMethodDef *ml, PyObject *self, PyObject *module, PyTypeObject *cls)
+{
+    PyCFunctionObject *op = NULL;
+    if (ml->ml_flags & METH_METHOD) {
+        PyCMethodObject *om;
+        if (ml->ml_flags & (METH_NOARGS | METH_O | METH_CLASS | METH_STATIC)) {
+            PyErr_SetString(PyExc_SystemError,
+                            "METH_METHOD cannot be used with METH_NOARGS, "
+                            "METH_O, METH_CLASS, nor METH_STATIC");
+            return NULL;
+        }
+        if (!cls) {
+            PyErr_SetString(PyExc_SystemError,
+                            "attempting to create PyCMethod with a METH_METHOD "
+                            "flag but no class");
+            return NULL;
+        }
+        om = PyObject_GC_New(PyCMethodObject, &PyCFunction_Type);
         if (op == NULL)
             return NULL;
+        Py_INCREF(cls);
+        om->mm_class = cls;
+        op = (PyCFunctionObject *)om;
+    } else {
+        if (cls) {
+            PyErr_SetString(PyExc_SystemError,
+                            "attempting to create PyCFunction with class "
+                            "but no METH_METHOD flag");
+            return NULL;
+        }
+        op = free_list;
+        if (op != NULL) {
+            free_list = (PyCFunctionObject *)(op->m_self);
+            (void)PyObject_INIT(op, &PyCFunction_Type);
+            numfree--;
+        }
+        else {
+            op = PyObject_GC_New(PyCFunctionObject, &PyCFunction_Type);
+            if (op == NULL)
+                return NULL;
+        }
     }
     op->m_weakreflist = NULL;
     op->m_ml = ml;
@@ -77,6 +116,16 @@ PyCFunction_GetFlags(PyObject *op)
     return PyCFunction_GET_FLAGS(op);
 }
 
+PyTypeObject *
+PyCMethod_GetClass(PyObject *op)
+{
+    if (!PyCFunction_Check(op)) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    return PyCFunction_GET_CLASS(op);
+}
+
 PyObject *
 PyCFunction_Call(PyObject *func, PyObject *args, PyObject *kwds)
 {
@@ -95,7 +144,12 @@ PyCFunction_Call(PyObject *func, PyObject *args, PyObject *kwds)
     flags = PyCFunction_GET_FLAGS(func) & ~(METH_CLASS | METH_STATIC | METH_COEXIST);
 
     if (flags == (METH_VARARGS | METH_KEYWORDS)) {
-        res = (*(PyCFunctionWithKeywords)meth)(self, args, kwds);
+        if (flags & METH_METHOD) {
+            PyTypeObject *cls = ((PyCMethodObject *)func)->mm_class;
+            res = (*(PyCMethod)meth)(self, cls, args, kwds);
+        } else {
+            res = (*(PyCFunctionWithKeywords)meth)(self, args, kwds);
+        }
     }
     else {
         if (kwds != NULL && PyDict_Size(kwds) != 0) {
@@ -106,7 +160,12 @@ PyCFunction_Call(PyObject *func, PyObject *args, PyObject *kwds)
 
         switch (flags) {
         case METH_VARARGS:
-            res = (*meth)(self, args);
+            if (flags & METH_METHOD) {
+                PyTypeObject *cls = ((PyCMethodObject *)func)->mm_class;
+                res = (*(PyCMethod)meth)(self, cls, args, NULL);
+            } else {
+                res = (*meth)(self, args);
+            }
             break;
 
         case METH_NOARGS:
@@ -254,6 +313,7 @@ meth_dealloc(PyCFunctionObject *m)
     }
     Py_XDECREF(m->m_self);
     Py_XDECREF(m->m_module);
+    Py_XDECREF(PyCFunction_GET_CLASS(m));
     if (numfree < PyCFunction_MAXFREELIST) {
         m->m_self = (PyObject *)free_list;
         free_list = m;

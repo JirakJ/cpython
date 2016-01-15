@@ -20,9 +20,12 @@ typedef PyObject *(*PyCFunctionWithKeywords)(PyObject *, PyObject *,
                                              PyObject *);
 typedef PyObject *(*PyNoArgsFunction)(PyObject *);
 
+typedef PyObject *(*PyCMethod)(PyObject *, PyTypeObject *, PyObject *, PyObject *);
+
 PyAPI_FUNC(PyCFunction) PyCFunction_GetFunction(PyObject *);
 PyAPI_FUNC(PyObject *) PyCFunction_GetSelf(PyObject *);
 PyAPI_FUNC(int) PyCFunction_GetFlags(PyObject *);
+PyAPI_FUNC(PyTypeObject *) PyCMethod_GetClass(PyObject *);
 
 /* Macros for direct access to these values. Type checks are *not*
    done, so use with care. */
@@ -34,6 +37,9 @@ PyAPI_FUNC(int) PyCFunction_GetFlags(PyObject *);
          NULL : ((PyCFunctionObject *)func) -> m_self)
 #define PyCFunction_GET_FLAGS(func) \
         (((PyCFunctionObject *)func) -> m_ml -> ml_flags)
+#define PyCFunction_GET_CLASS(func) \
+    (((PyCFunctionObject *)func) -> m_ml -> ml_flags & METH_METHOD ? \
+         ((PyCMethodObject *)func) -> mm_class : NULL)
 #endif
 PyAPI_FUNC(PyObject *) PyCFunction_Call(PyObject *, PyObject *, PyObject *);
 
@@ -57,6 +63,12 @@ typedef struct PyMethodDef PyMethodDef;
 PyAPI_FUNC(PyObject *) PyCFunction_NewEx(PyMethodDef *, PyObject *,
                                          PyObject *);
 
+#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03060000
+#define PyCFunction_NewEx(ML, SELF, MOD) PyCMethod_New((ML), (SELF), (MOD), NULL)
+PyAPI_FUNC(PyObject *) PyCMethod_New(PyMethodDef *, PyObject *,
+                                     PyObject *, PyTypeObject *);
+#endif
+
 /* Flag passed to newmethodobject */
 /* #define METH_OLDARGS  0x0000   -- unsupported now */
 #define METH_VARARGS  0x0001
@@ -78,6 +90,14 @@ PyAPI_FUNC(PyObject *) PyCFunction_NewEx(PyMethodDef *, PyObject *,
 
 #define METH_COEXIST   0x0040
 
+/* METH_METHOD means the function stores an additional reference to the class;
+ * both self and class are passed to it.
+ * It uses PyCMethodObject instead of PyCFunctionObject.
+ * May not be combined with METH_NOARGS, METH_O, METH_CLASS or METH_STATIC.
+ */
+
+#define METH_METHOD    0x0080
+
 #ifndef Py_LIMITED_API
 typedef struct {
     PyObject_HEAD
@@ -86,6 +106,11 @@ typedef struct {
     PyObject    *m_module; /* The __module__ attribute, can be anything */
     PyObject    *m_weakreflist; /* List of weak references */
 } PyCFunctionObject;
+
+typedef struct {
+    PyCFunctionObject func;
+    PyTypeObject *mm_class; /* Passed as 'cls' arg to the C func */
+} PyCMethodObject;
 #endif
 
 PyAPI_FUNC(int) PyCFunction_ClearFreeList(void);

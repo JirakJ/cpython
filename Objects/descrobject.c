@@ -125,7 +125,19 @@ method_get(PyMethodDescrObject *descr, PyObject *obj, PyObject *type)
 
     if (descr_check((PyDescrObject *)descr, obj, &res))
         return res;
-    return PyCFunction_NewEx(descr->d_method, obj, NULL);
+    if (descr->d_method->ml_flags & METH_METHOD) {
+        if (PyType_Check(type)) {
+            return PyCMethod_New(descr->d_method, obj, NULL, (PyTypeObject*)type);
+        } else {
+            PyErr_Format(PyExc_TypeError,
+                        "descriptor '%V' needs a type, not '%s', as arg 2",
+                        descr_name((PyDescrObject *)descr),
+                        type->ob_type->tp_name);
+            return NULL;
+        }
+    } else {
+        return PyCFunction_NewEx(descr->d_method, obj, NULL);
+    }
 }
 
 static PyObject *
@@ -239,7 +251,11 @@ methoddescr_call(PyMethodDescrObject *descr, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    func = PyCFunction_NewEx(descr->d_method, self, NULL);
+    if (descr->d_method->ml_flags & METH_METHOD) {
+        func = PyCMethod_New(descr->d_method, self, NULL, PyDescr_TYPE(descr));
+    } else {
+        func = PyCFunction_NewEx(descr->d_method, self, NULL);
+    }
     if (func == NULL)
         return NULL;
     stack = &PyTuple_GET_ITEM(args, 1);
