@@ -32,7 +32,29 @@ PyDoc_STRVAR(_pickle_Pickler_dump__doc__,
 "Write a pickled representation of the given object to the open file.");
 
 #define _PICKLE_PICKLER_DUMP_METHODDEF    \
-    {"dump", (PyCFunction)_pickle_Pickler_dump, METH_O, _pickle_Pickler_dump__doc__},
+    {"dump", (PyCFunction)_pickle_Pickler_dump, METH_METHOD, _pickle_Pickler_dump__doc__},
+
+static PyObject *
+_pickle_Pickler_dump_impl(PicklerObject *self, PyTypeObject *cls,
+                          PyObject *obj);
+
+static PyObject *
+_pickle_Pickler_dump(PicklerObject *self, PyTypeObject * cls, PyObject *args, PyObject *kwargs)
+{
+    PyObject *return_value = NULL;
+    static const char * const _keywords[] = {"", NULL};
+    static _PyArg_Parser _parser = {"O:dump", _keywords, 0};
+    PyObject *obj;
+
+    if (!_PyArg_ParseTupleAndKeywordsFast(args, kwargs, &_parser,
+        &obj)) {
+        goto exit;
+    }
+    return_value = _pickle_Pickler_dump_impl(self, cls, obj);
+
+exit:
+    return return_value;
+}
 
 PyDoc_STRVAR(_pickle_Pickler___sizeof____doc__,
 "__sizeof__($self, /)\n"
@@ -560,4 +582,4 @@ _pickle_loads(PyObject *module, PyObject *args, PyObject *kwargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=50f9127109673c98 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=8bf63cd24f3c9d9f input=a9049054013a1b77]*/
