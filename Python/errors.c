@@ -874,6 +874,30 @@ PyErr_NewExceptionWithDoc(const char *name, const char *doc,
 }
 
 
+/* Prepare a static exception */
+PyTypeObject *
+PyErr_PrepareStaticException(PyTypeObject *exc, const char *name,
+                             const char *doc, PyObject *base)
+{
+    if (Py_TYPE(exc) != NULL) {
+        return exc;
+    }
+    exc->tp_name = name;
+    exc->tp_doc = doc;
+    if (base == NULL) {
+        exc->tp_base = PyExc_Exception;
+    } else {
+        exc->tp_base = base;
+    }
+    exc->tp_flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE |
+                     Py_TPFLAGS_BASE_EXC_SUBCLASS);
+    if (PyType_Ready(exc) == 0) {
+        return exc;
+    }
+    return NULL;
+}
+
+
 /* Call when an exception has occurred but there is no way for Python
    to handle it.  Examples: exception in __del__ or during GC. */
 void
