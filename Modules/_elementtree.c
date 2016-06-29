@@ -79,10 +79,11 @@ static PyTypeObject ElementIter_Type;
 static PyTypeObject TreeBuilder_Type;
 static PyTypeObject XMLParser_Type;
 
+static PyTypeObject parseerror_obj;
+static PyObject *parseerror = (PyObject *)&parseerror_obj;
 
 /* Per-module state; PEP 3121 */
 typedef struct {
-    PyObject *parseerror_obj;
     PyObject *deepcopy_obj;
     PyObject *elementpath_obj;
 } elementtreestate;
@@ -104,7 +105,6 @@ static int
 elementtree_clear(PyObject *m)
 {
     elementtreestate *st = ET_STATE(m);
-    Py_CLEAR(st->parseerror_obj);
     Py_CLEAR(st->deepcopy_obj);
     Py_CLEAR(st->elementpath_obj);
     return 0;
@@ -114,7 +114,6 @@ static int
 elementtree_traverse(PyObject *m, visitproc visit, void *arg)
 {
     elementtreestate *st = ET_STATE(m);
-    Py_VISIT(st->parseerror_obj);
     Py_VISIT(st->deepcopy_obj);
     Py_VISIT(st->elementpath_obj);
     return 0;
@@ -2475,7 +2474,6 @@ treebuilder_handle_start(TreeBuilderObject* self, PyObject* tag,
 {
     PyObject* node;
     PyObject* this;
-    elementtreestate *st = ET_STATE_GLOBAL;
 
     if (self->data) {
         if (self->this == self->last) {
@@ -2513,7 +2511,7 @@ treebuilder_handle_start(TreeBuilderObject* self, PyObject* tag,
     } else {
         if (self->root) {
             PyErr_SetString(
-                st->parseerror_obj,
+                parseerror,
                 "multiple elements on top level"
                 );
             goto error;
@@ -2823,7 +2821,6 @@ expat_set_error(enum XML_Error error_code, Py_ssize_t line, Py_ssize_t column,
                 const char *message)
 {
     PyObject *errmsg, *error, *position, *code;
-    elementtreestate *st = ET_STATE_GLOBAL;
 
     errmsg = PyUnicode_FromFormat("%s: line %zd, column %zd",
                 message ? message : EXPAT(ErrorString)(error_code),
@@ -2831,7 +2828,7 @@ expat_set_error(enum XML_Error error_code, Py_ssize_t line, Py_ssize_t column,
     if (errmsg == NULL)
         return;
 
-    error = PyObject_CallFunction(st->parseerror_obj, "O", errmsg);
+    error = PyObject_CallFunction(parseerror, "O", errmsg);
     Py_DECREF(errmsg);
     if (!error)
         return;
@@ -2861,7 +2858,7 @@ expat_set_error(enum XML_Error error_code, Py_ssize_t line, Py_ssize_t column,
     }
     Py_DECREF(position);
 
-    PyErr_SetObject(st->parseerror_obj, error);
+    PyErr_SetObject(parseerror, error);
     Py_DECREF(error);
 }
 
@@ -3961,11 +3958,12 @@ PyInit__elementtree(void)
         return NULL;
     }
 
-    st->parseerror_obj = PyErr_NewException(
-        "xml.etree.ElementTree.ParseError", PyExc_SyntaxError, NULL
-        );
-    Py_INCREF(st->parseerror_obj);
-    PyModule_AddObject(m, "ParseError", st->parseerror_obj);
+    if (PyErr_PrepareStaticException(&parseerror_obj,
+            "xml.etree.ElementTree.ParseError", NULL, PyExc_SyntaxError) == NULL) {
+        return NULL;
+    }
+    Py_INCREF(parseerror);
+    PyModule_AddObject(m, "ParseError", parseerror);
 
     Py_INCREF((PyObject *)&Element_Type);
     PyModule_AddObject(m, "Element", (PyObject *)&Element_Type);
