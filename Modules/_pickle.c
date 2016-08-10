@@ -622,7 +622,6 @@ typedef struct UnpicklerObject {
     int proto;                  /* Protocol of the pickle loaded. */
     int fix_imports;            /* Indicate whether Unpickler should fix
                                    the name of globals pickled by Python 2.x. */
-    PickleState *module_state;  /* Cached module state */
 } UnpicklerObject;
 
 typedef struct {
@@ -1041,9 +1040,7 @@ _Pickler_New(PyObject *module)
     self->output_buffer = PyBytes_FromStringAndSize(NULL,
                                                     self->max_output_len);
 
-    self->module_state = _Pickle_GetState(module);
-    if (self->module_state == NULL)
-        return NULL;
+    self->module_state = st;
 
     if (self->memo == NULL || self->output_buffer == NULL) {
         Py_DECREF(self);
@@ -1419,10 +1416,7 @@ _Unpickler_New(PyObject *module)
     self->memo_size = 32;
     self->memo_len = 0;
     self->memo = _Unpickler_NewMemo(self->memo_size);
-    self->module_state = _Pickle_GetState(module);
-    if (self->module_state == NULL)
-        return NULL;
-    self->stack = (Pdata *)Pdata_New(self->module_state);
+    self->stack = (Pdata *)Pdata_New(st);
 
     if (self->memo == NULL || self->stack == NULL) {
         Py_DECREF(self);
@@ -3304,7 +3298,6 @@ save_global(PicklerObject *self, PyObject *obj, PyObject *name)
                 goto error;
         }
         else if (parent != module) {
-            PickleState *st = self->module_state;
             PyObject *reduce_value = Py_BuildValue("(O(OO))",
                                         st->getattr, parent, lastname);
             status = save_reduce(self, reduce_value, NULL);
@@ -5661,7 +5654,7 @@ load_extension(UnpicklerObject *self, int nbytes)
     PyObject *obj;              /* the object to push */
     PyObject *pair;             /* (module_name, class_name) */
     PyObject *module_name, *class_name;
-    PickleState *st = self->module_state;
+    PickleState *st = self->stack->module_state;
 
     assert(nbytes == 1 || nbytes == 2 || nbytes == 4);
     if (_Unpickler_Read(self, &codebytes, nbytes) < 0)
@@ -6403,7 +6396,7 @@ _pickle_Unpickler_find_class_impl(UnpicklerObject *self,
     if (self->proto < 3 && self->fix_imports) {
         PyObject *key;
         PyObject *item;
-        PickleState *st = self->module_state;
+        PickleState *st = self->stack->module_state;
 
         /* Check if the global (i.e., a function or a class) was renamed
            or moved to another module. */
