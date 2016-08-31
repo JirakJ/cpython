@@ -7230,13 +7230,79 @@ pickle_traverse(PyObject *m, visitproc visit, void *arg)
     return 0;
 }
 
+static int
+pickle_exec(PyObject *m)
+{
+    PickleState *st;
+
+    if (PyType_Ready(&Pdata_Type) < 0)
+        return -1;
+    if (PyType_Ready(&PicklerMemoProxyType) < 0)
+        return -1;
+    if (PyType_Ready(&UnpicklerMemoProxyType) < 0)
+        return -1;
+
+    st = _Pickle_GetState(m);
+
+    /* Initialize the classes */
+    st->Pickler = (PyTypeObject *)PyType_FromModuleAndSpec(m, &Pickler_spec, NULL);
+    if (st->Pickler == NULL)
+        return -1;
+    if (PyModule_AddObject(m, "Pickler", (PyObject *)st->Pickler) != 0)
+        return -1;
+
+    st->Unpickler = (PyTypeObject *)PyType_FromModuleAndSpec(m, &Unpickler_spec, NULL);
+    if (st->Unpickler == NULL)
+        return -1;
+    if (PyModule_AddObject(m, "Unpickler", (PyObject *)st->Unpickler) != 0)
+        return -1;
+
+    /* Initialize the exceptions. */
+    if (PyErr_PrepareStaticException(&pickle_error_obj,
+                                     "_pickle.PickleError",
+                                     NULL, NULL) == NULL) {
+        return -1;
+    }
+    if (PyErr_PrepareStaticException(&pickling_error_obj,
+                                     "_pickle.PicklingError",
+                                     NULL, pickle_error) == NULL) {
+        return -1;
+    }
+    if (PyErr_PrepareStaticException(&unpickling_error_obj,
+                                     "_pickle.UnpicklingError",
+                                     NULL, pickle_error) == NULL) {
+        return -1;
+    }
+
+    Py_INCREF(pickle_error);
+    if (PyModule_AddObject(m, "PickleError", pickle_error) < 0)
+        return -1;
+    Py_INCREF(pickling_error);
+    if (PyModule_AddObject(m, "PicklingError", pickling_error) < 0)
+        return -1;
+    Py_INCREF(unpickling_error);
+    if (PyModule_AddObject(m, "UnpicklingError", unpickling_error) < 0)
+        return -1;
+
+    if (_Pickle_InitState(st) < 0)
+        return -1;
+
+    Py_INCREF(m);       // Why is this needed?!
+    return 0;
+}
+
+static PyModuleDef_Slot pickle_slots[] = {
+    {Py_mod_exec, pickle_exec},
+    {0, NULL}
+};
+
 static struct PyModuleDef _picklemodule = {
     PyModuleDef_HEAD_INIT,
     "_pickle",            /* m_name */
     pickle_module_doc,    /* m_doc */
     sizeof(PickleState),  /* m_size */
     pickle_methods,       /* m_methods */
-    NULL,                 /* m_reload */
+    pickle_slots,         /* m_slots */
     pickle_traverse,      /* m_traverse */
     pickle_clear,         /* m_clear */
     (freefunc)pickle_free /* m_free */
@@ -7245,71 +7311,5 @@ static struct PyModuleDef _picklemodule = {
 PyMODINIT_FUNC
 PyInit__pickle(void)
 {
-    PyObject *m;
-    PickleState *st;
-
-    m = PyState_FindModule(&_picklemodule);
-    if (m) {
-        Py_INCREF(m);
-        return m;
-    }
-
-    if (PyType_Ready(&Pdata_Type) < 0)
-        return NULL;
-    if (PyType_Ready(&PicklerMemoProxyType) < 0)
-        return NULL;
-    if (PyType_Ready(&UnpicklerMemoProxyType) < 0)
-        return NULL;
-
-    /* Create the module and add the functions. */
-    m = PyModule_Create(&_picklemodule);
-    if (m == NULL)
-        return NULL;
-
-    st = _Pickle_GetState(m);
-
-    /* Initialize the classes */
-    st->Pickler = (PyTypeObject *)PyType_FromModuleAndSpec(m, &Pickler_spec, NULL);
-    if (st->Pickler == NULL)
-        return NULL;
-    if (PyModule_AddObject(m, "Pickler", (PyObject *)st->Pickler) != 0)
-        return NULL;
-
-    st->Unpickler = (PyTypeObject *)PyType_FromModuleAndSpec(m, &Unpickler_spec, NULL);
-    if (st->Unpickler == NULL)
-        return NULL;
-    if (PyModule_AddObject(m, "Unpickler", (PyObject *)st->Unpickler) != 0)
-        return NULL;
-
-    /* Initialize the exceptions. */
-    if (PyErr_PrepareStaticException(&pickle_error_obj,
-                                     "_pickle.PickleError",
-                                     NULL, NULL) == NULL) {
-        return NULL;
-    }
-    if (PyErr_PrepareStaticException(&pickling_error_obj,
-                                     "_pickle.PicklingError",
-                                     NULL, pickle_error) == NULL) {
-        return NULL;
-    }
-    if (PyErr_PrepareStaticException(&unpickling_error_obj,
-                                     "_pickle.UnpicklingError",
-                                     NULL, pickle_error) == NULL) {
-        return NULL;
-    }
-
-    Py_INCREF(pickle_error);
-    if (PyModule_AddObject(m, "PickleError", pickle_error) < 0)
-        return NULL;
-    Py_INCREF(pickling_error);
-    if (PyModule_AddObject(m, "PicklingError", pickling_error) < 0)
-        return NULL;
-    Py_INCREF(unpickling_error);
-    if (PyModule_AddObject(m, "UnpicklingError", unpickling_error) < 0)
-        return NULL;
-
-    if (_Pickle_InitState(st) < 0)
-        return NULL;
-
-    return m;
+    return PyModuleDef_Init(&_picklemodule);
 }
